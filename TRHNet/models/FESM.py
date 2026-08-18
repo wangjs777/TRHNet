@@ -17,6 +17,7 @@ def get_list(w, k):
             width_list.append(w // k)
     print(width_list)
 
+
 # SSAM
 class FESM(nn.Module):
     def __init__(self, in_channel=1024, k=2):
@@ -48,9 +49,11 @@ class FESM(nn.Module):
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+        nn.init.zeros_(self.threshold_attention[1].weight)
+        nn.init.zeros_(self.threshold_attention[1].bias)
 
     def forward(self, fm):
-        #print(fm.shape)
+        # print(fm.shape)
         b, c, w, h = fm.shape
         # 宽度方向上划分 k b c w/k h
         fm_w = torch.split(fm, w // self.k, dim=2)
@@ -81,17 +84,54 @@ class FESM(nn.Module):
         fms_boost = fm + alpha * (fm * fm_final)
         # print(fms_boost[0][0])
         beta = 0.5
-        # # 生成自适应阈值
-        adaptive_threshold = self.threshold_attention(fm)  # 输出 [B, 1, 1, 1] 的自适应阈值
 
-        # # 将小于最大值的置为1 等于的置数为beat 对应论文的1 - beta
-        fms_softmax_suppress = []
-        for index, var in enumerate(fm_final):
-            fms_max = torch.max(var)
-            temp = torch.clamp((fm_final[index] < fms_max * adaptive_threshold[index]).float(), min=beta)
-            fms_softmax_suppress.append(temp)
-        fms_softmax_suppress = torch.stack(fms_softmax_suppress)
-        # # 抑制后的特征
+        # ---------------------------------------------------------
+        # Content-dependent adaptive threshold
+        # T: [B, 1, 1, 1], constrained to (0, 1) by Sigmoid
+        # ---------------------------------------------------------
+        adaptive_threshold = self.threshold_attention(fm)
+        # adaptive_threshold = torch.full(
+        #     (fm.size(0), 1, 1, 1),
+        #     0.5,
+        #     device=fm.device,
+        #     dtype=fm.dtype
+        # )
+        # Normalize the spatial attention map by its maximum response.
+        # fm_final: [B, 1, H, W]
+        fms_max = fm_final.amax(dim=(2, 3), keepdim=True)
+        normalized_score = fm_final / (fms_max + 1e-12)
+
+        # ---------------------------------------------------------
+        # Straight-Through Estimator (STE)
+        #
+        # Forward:
+        #   hard_gate = 1 for dominant regions (score >= T)
+        #               0 otherwise
+        #
+        # Backward:
+        #   gradients are propagated through soft_gate
+        # ---------------------------------------------------------
+        soft_gate = torch.sigmoid(
+            normalized_score - adaptive_threshold
+        )
+
+        hard_gate = (
+                normalized_score >= adaptive_threshold
+        ).float()
+
+        gate = (
+                hard_gate.detach()
+                - soft_gate.detach()
+                + soft_gate
+        )
+
+        # Dominant regions: mask = beta = 0.5
+        # Other regions:    mask = 1.0
+        fms_softmax_suppress = (
+                1.0 - (1.0 - beta) * gate
+        )
+
+        # Apply the suppression mask
         fms_suppress = fm * fms_softmax_suppress
         # print(fms_suppress[0][0])
         return fms_boost, fms_suppress

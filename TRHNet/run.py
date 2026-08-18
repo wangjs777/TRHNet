@@ -1,11 +1,11 @@
 #!/aaw/anaconda/envs/CR7/bin/python3.8
-#import msadapter.pytorch as torch
+# import msadapter.pytorch as torch
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from torchvision.transforms.functional import InterpolationMode
-#import mindspore as ms
+# import mindspore as ms
 import argparse
 from loguru import logger
 from data.data_loader import load_data as load_data
@@ -14,9 +14,10 @@ import numpy as np
 import random
 import A_2_Net_train_plus as A_2_Net_plus
 
-
 import warnings
+
 warnings.filterwarnings("ignore")
+
 
 def seed_everything(seed):
     random.seed(seed)
@@ -27,16 +28,17 @@ def seed_everything(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
 
+
 def run():
     # seed_everything(68)
     seed_everything(3)
     args = load_config()
     if args.arch != 'test':
-        if not os.path.exists('logs/' + 'time'):
-            os.makedirs('logs/' + 'time')
+        if not os.path.exists('logs/' + '2'):
+            os.makedirs('logs/' + '2')
         # logger.add('logs/' + args.info + '/-{time}_' + args.arch + '_' + args.dataset + '.log', rotation='500 MB', level='INFO')
         # logger.add('logs/' + 2.info + '/' + str(args.code_length) + '/food101-finet.log')
-        logger.add('logs/' + 'time' + '/' + str(args.code_length) + '/' + 'vegfru.log')
+        logger.add('logs/' + '2' + '/' + str(args.code_length) + '/' + 'food101_2.log')
         # logger.add('logs/'+args.info+'/'+str(args.code_length)+'/resonly-test.log')
         logger.info(args)
 
@@ -57,9 +59,66 @@ def run():
     elif args.arch == 'a2net_ft':
         net_arch = A_2_Net_finetuneO
 
+    # for code_length in args.code_length:
+    #     mAP = net_arch.train_e2e(query_dataloader, train_dataloader, retrieval_dataloader, code_length, args)
+    #     logger.info('[code_length:{}][map:{:.4f}]'.format(code_length, mAP))
     for code_length in args.code_length:
-        mAP = net_arch.train_e2e(query_dataloader, train_dataloader, retrieval_dataloader, code_length, args)
-        logger.info('[code_length:{}][map:{:.4f}]'.format(code_length, mAP))
+
+        # =====================================================
+        # Complexity-only mode
+        # =====================================================
+        if args.complexity_only:
+
+            if args.checkpoint == '':
+                checkpoint_path = os.path.join(
+                    'checkpoints_test',
+                    args.info,
+                    str(code_length),
+                    'model.pkl'
+                )
+            else:
+                checkpoint_path = args.checkpoint
+
+            if not os.path.exists(checkpoint_path):
+                raise FileNotFoundError(
+                    f"Checkpoint not found: {checkpoint_path}"
+                )
+
+            complexity = net_arch.test_complexity(
+                query_dataloader=query_dataloader,
+                code_length=code_length,
+                args=args,
+                checkpoint_path=checkpoint_path
+            )
+
+            logger.info(
+                f"[FINAL]"
+                f"[code_length:{code_length}]"
+                f"[Params:{complexity['params_m']:.3f} M]"
+                f"[FLOPs:{complexity['flops_g']:.3f} G]"
+                f"[Latency:{complexity['latency_ms']:.4f} ms/image]"
+            )
+
+        # =====================================================
+        # Normal training
+        # =====================================================
+        else:
+
+            mAP = net_arch.train_e2e(
+                query_dataloader,
+                train_dataloader,
+                retrieval_dataloader,
+                code_length,
+                args
+            )
+
+            logger.info(
+                '[code_length:{}][map:{:.4f}]'.format(
+                    code_length,
+                    mAP
+                )
+            )
+
 
 def load_config():
     """
@@ -72,9 +131,9 @@ def load_config():
         args(argparse.ArgumentParser): Configuration.
     """
     parser = argparse.ArgumentParser(description='ADSH_PyTorch')
-    parser.add_argument('--dataset', default="vegfru", type=str,
+    parser.add_argument('--dataset', default="food-101", type=str,
                         help='Dataset name.')
-    parser.add_argument('--root', default="/your_path/vegfru-dataset/",
+    parser.add_argument('--root', default="/22wangjunsong/datasets/food-101/",
                         help='Path of dataset')
     parser.add_argument('--batch-size', default=32, type=int,
                         help='Batch size.(default: 16)')
@@ -84,7 +143,7 @@ def load_config():
                         help='Weight Decay.(default: 1e-4)')
     parser.add_argument('--optim', default='SGD', type=str,
                         help='Optimizer')
-    parser.add_argument('--code-length', default='48', type=str,
+    parser.add_argument('--code-length', default='12', type=str,
                         help='Binary hash code length.(default: 12,24,32,48)')
     parser.add_argument('--max-epoch', default=150, type=int,
                         help='Number of epochs.(default: 5)')
@@ -118,13 +177,23 @@ def load_config():
     parser.add_argument('--lambd', default=1, type=float,
                         help='Hyper-parameter.(default: 1)')
     parser.add_argument('--momen', default=0.91, type=float,
-                         help='Hyper-parameter.(default: 0.9)')
-    parser.add_argument('--nesterov',default=True, action='store_true',
-                         help='Using SGD nesterov')
-    parser.add_argument('--num_classes', default=292, type=int,
+                        help='Hyper-parameter.(default: 0.9)')
+    parser.add_argument('--nesterov', default=True, action='store_true',
+                        help='Using SGD nesterov')
+    parser.add_argument('--num_classes', default=101, type=int,
                         help='Number of sampling data points.(default: 2000)')
     parser.add_argument('--margin', default=4, type=float)
-    parser.add_argument('--eval_freq', default=50, type=int)
+    parser.add_argument('--eval_freq', default=30, type=int)
+    parser.add_argument(
+        '--complexity-only',
+        action='store_true',
+        help='Only evaluate inference complexity without training.')
+
+    parser.add_argument(
+        '--checkpoint',
+        default='/model.pkl',
+        type=str,
+        help='Path to trained model checkpoint.')
     args = parser.parse_args()
 
     # GPU

@@ -1,15 +1,22 @@
-# -*- coding: utf-8 -*-
-# @Time    : 2023/5/4
-# @Author  : White Jiang
 import torch.nn
 import torch.nn as nn
 
 
 class MCM(nn.Module):
-    def __init__(self):
+    def __init__(self, channels=2048):
         super(MCM, self).__init__()
         self.soft = torch.nn.Softmax(dim=2)
         self.alpha = nn.Parameter(torch.tensor(0.5))  # 初始化可学习的权重参数 alpha
+        # self.register_buffer(
+        #     'alpha',
+        #     torch.tensor(0.5)
+        # )
+        self.conv = nn.Conv2d(
+            in_channels=channels,
+            out_channels=1,
+            kernel_size=1,
+            bias=True
+        )
 
     def forward(self, f1, f2):
         """
@@ -18,9 +25,6 @@ class MCM(nn.Module):
         """
         # similarity = torch.cosine_similarity(f1, f2, dim=1)
         b, c, h, w = f1.size()
-        # 假设你使用的是 CUDA
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.conv = nn.Conv2d(c, 1, kernel_size=1).to(device)
         similarity = self.conv(f1 - f2)
         similarity = similarity.view(b, 1, h * w)
         similarity = self.soft(similarity)
