@@ -14,7 +14,13 @@ This repository contains the official implementation of our paper "TRHNet: Adapt
 If you find our work useful, please consider citing our paper.
 
 ```bibtex
-% Paste the official BibTeX exported from IEEE Xplore here.
+@article{wang2026trhnet,
+  title={TRHNet: Adaptive and Cooperative Two-Branch Reconstructive Hashing Network for Fine-Grained Food Image Retrieval},
+  author={Wang, Junsong and Min, Weiqing and Sheng, Guorui and Cao, Pindan and Yang, Yancun and Yao, Tao and Wang, Lili and Jiang, Shuqiang},
+  journal={IEEE Transactions on Circuits and Systems for Video Technology},
+  year={2026},
+  publisher={IEEE}
+}
 ```
 
 ## Acknowledgements
